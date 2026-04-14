@@ -1,0 +1,21 @@
+name: standalone-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make all
+      - name: Unit tests
+        run: make test
+      - name: Smoke tests
+        run: make smoke
+      - name: Lint flags
+        run: make lint
