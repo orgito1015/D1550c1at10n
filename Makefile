@@ -35,7 +35,45 @@ TEST_OBJ := $(TEST_SRC:%.c=$(BUILD_DIR)/%.o)
 
 EXAMPLE_BINS := $(patsubst examples/%.c,$(EXAMPLES_DIR)/%,$(EXAMPLE_SRC))
 
-.PHONY: all clean test smoke lint examples
+# ------------------------------------------------------------------
+# OpenOS integration build
+#
+# OPENOS_SRC replaces mocks/mock_hw.c with openos/hal.c and adds the
+# OpenOS-specific modules (driver manager, drivers init, IRQ wiring,
+# and the test harness).  The driver and framework sources are shared
+# with the standard build.
+# ------------------------------------------------------------------
+OPENOS_DRIVER_SRC := \
+framework/io.c \
+framework/pci.c \
+framework/irq_helpers.c \
+storage/ata.c \
+storage/ramdisk.c \
+storage/fat.c \
+network/rtl8139.c \
+network/arp.c \
+network/dhcp.c \
+display/vbe.c \
+display/font.c \
+display/cursor.c \
+input/mouse.c \
+input/uart.c \
+openos/hal.c \
+openos/driver_manager.c \
+openos/drivers_init.c \
+openos/irq_wiring.c \
+openos/openos_harness.c
+
+OPENOS_TEST_SRC := tests/test_openos_integration.c
+
+OPENOS_BUILD_DIR  := $(BUILD_DIR)/openos
+OPENOS_LIB        := $(OPENOS_BUILD_DIR)/libopenos_drivers.a
+OPENOS_TEST_BIN   := $(OPENOS_BUILD_DIR)/openos_integration_tests
+
+OPENOS_OBJ      := $(OPENOS_DRIVER_SRC:%.c=$(OPENOS_BUILD_DIR)/%.o)
+OPENOS_TEST_OBJ := $(OPENOS_TEST_SRC:%.c=$(OPENOS_BUILD_DIR)/%.o)
+
+.PHONY: all clean test smoke lint examples openos-lib openos-test openos-smoke
 
 all: $(LIB) $(UNIT_TEST) examples
 
@@ -73,3 +111,34 @@ lint:
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# ------------------------------------------------------------------
+# OpenOS targets
+# ------------------------------------------------------------------
+
+$(OPENOS_BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# Static library containing all OpenOS-backed driver objects.
+openos-lib: $(OPENOS_LIB)
+
+$(OPENOS_LIB): $(OPENOS_OBJ)
+	ar rcs $@ $^
+
+# Build and run the OpenOS integration test suite.
+openos-test: $(OPENOS_TEST_BIN)
+	./$(OPENOS_TEST_BIN)
+
+$(OPENOS_TEST_BIN): $(OPENOS_OBJ) $(OPENOS_TEST_OBJ)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Smoke-run every example linked against the OpenOS HAL.
+openos-smoke: openos-lib
+	@for example in $(EXAMPLE_BINS); do \
+		src=examples/$$(basename $$example).c; \
+		out=$(OPENOS_BUILD_DIR)/smoke_$$(basename $$example); \
+		$(CC) $(CFLAGS) $$src $(OPENOS_OBJ) -o $$out; \
+		echo "Running $$out"; \
+		./$$out; \
+	done
